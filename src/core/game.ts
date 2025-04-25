@@ -6,6 +6,13 @@ import { Enemy } from '../entities/enemy';
 import { PowerUp } from '../entities/powerup';
 import { UI } from '../ui/ui';
 import { Level } from './level';
+import { MainMenu } from '../ui/mainMenu';
+import { ScoreManager } from './scoreManager';
+import { ParticleSystem } from '../effects/particleSystem';
+import { FlyingEnemy } from '../entities/flyingEnemy';
+import { ShootingEnemy } from '../entities/shootingEnemy';
+import { MovingPlatform } from '../entities/movingPlatform';
+import { DisappearingPlatform } from '../entities/disappearingPlatform';
 
 // Extension pour PIXI.Graphics pour ajouter des méthodes personnalisées
 declare global {
@@ -36,6 +43,16 @@ export class Game {
     level: Level;
     player: Player;
     isGameRunning: boolean;
+    mainMenu: MainMenu;
+    gameState: string; // 'menu', 'playing', 'paused', 'gameOver'
+    scoreManager: ScoreManager;
+    particles: ParticleSystem;
+    flyingEnemies: FlyingEnemy[];
+    shootingEnemies: ShootingEnemy[];
+    movingPlatforms: MovingPlatform[];
+    disappearingPlatforms: DisappearingPlatform[];
+    gameScene: PIXI.Container;
+    isGameStarted: boolean;
 
     constructor() {
         // Configuration du jeu
@@ -47,6 +64,7 @@ export class Game {
         // État du jeu
         this.isGameOver = false;
         this.isPaused = false;
+        this.gameState = 'menu';
         
         // Stockage des textures
         this.textures = {};
@@ -56,9 +74,36 @@ export class Game {
         this.collectibles = [];
         this.enemies = [];
         this.powerUps = [];
+        this.flyingEnemies = [];
+        this.shootingEnemies = [];
+        this.movingPlatforms = [];
+        this.disappearingPlatforms = [];
         
         // Gestion du redimensionnement
         window.addEventListener('resize', this.handleResize.bind(this));
+        
+        // Créer l'application PIXI
+        this.app = new PIXI.Application({
+            width: this.width,
+            height: this.height,
+            backgroundColor: 0x1099bb,
+            resolution: window.devicePixelRatio || 1,
+            autoDensity: true,
+        });
+        
+        // Ajouter le canvas au DOM
+        document.body.appendChild(this.app.view);
+        
+        // Créer la scène de jeu
+        this.gameScene = new PIXI.Container();
+        this.app.stage.addChild(this.gameScene);
+        
+        // Initialiser le menu principal
+        this.mainMenu = new MainMenu(this);
+        this.app.stage.addChild(this.mainMenu.container);
+        
+        // État initial du jeu
+        this.isGameStarted = false;
     }
 
     handleResize() {
@@ -77,6 +122,11 @@ export class Game {
                 this.level.handleResize();
             }
             
+            // Mettre à jour le menu principal
+            if (this.mainMenu) {
+                this.mainMenu.handleResize();
+            }
+            
             // Ajuster la taille du joueur si nécessaire
             if (this.player) {
                 // Si le joueur est trop petit par rapport à l'écran, augmenter sa taille
@@ -91,23 +141,11 @@ export class Game {
     }
 
     async start() {
-        // Initialiser l'application PIXI
-        this.app = new PIXI.Application({
-            width: this.width,
-            height: this.height,
-            backgroundColor: 0x87CEEB,
-            antialias: true,
-            resolution: window.devicePixelRatio || 1,
-        });
+        // Initialiser l'application PIXI (déjà fait dans le constructeur)
+        // NE PAS cacher le menu principal - on le laisse visible
+        // this.mainMenu.hide(); <-- Commenté pour garder le menu visible
         
-        // Ajouter le canvas au DOM
-        document.getElementById('game-container')?.appendChild(this.app.view as unknown as HTMLCanvasElement);
-        
-        // Ajouter un conteneur principal pour tous les éléments du jeu
-        this.container = new PIXI.Container();
-        this.app.stage.addChild(this.container);
-        
-        // Préparer les textures de secours
+        // Initialiser les textures de secours
         this.createFallbackTextures();
         
         // Étendre les graphiques avec des méthodes personnalisées
@@ -116,48 +154,28 @@ export class Game {
         // Charger les assets
         await this.loadAssets();
         
-        // Créer le joueur
-        this.createPlayer();
+        // Initialiser le système de particules
+        this.particles = new ParticleSystem(this);
         
-        // Initialiser l'interface utilisateur
-        this.ui = new UI(this);
-        
-        // Initialiser le gestionnaire de niveaux
-        this.level = new Level(this, {});
-        
-        // Charger le premier niveau
-        const levelLoaded = this.level.loadLevel(0);
-        console.log("Niveau chargé:", levelLoaded);
-        console.log("Plateformes créées:", this.platforms.length);
-        console.log("Collectibles créés:", this.collectibles.length);
-        console.log("Ennemis créés:", this.enemies.length);
-        console.log("Power-ups créés:", this.powerUps.length);
-        
-        // Forcer la mise à jour de l'affichage de santé et de niveau
-        this.ui.createHealthDisplay();
-        this.ui.updateLevelDisplay();
+        // Initialiser le gestionnaire de scores
+        this.scoreManager = new ScoreManager(this);
         
         // Configurer les événements clavier
         this.setupKeyboardEvents();
         
-        // Commencer le jeu
-        this.isGameRunning = true;
+        console.log("Menu principal initialisé et visible");
+        
+        // Commencer le game loop mais ne pas démarrer le jeu directement
         this.app.ticker.add(this.gameLoop.bind(this));
-        
-        // Montrer les instructions
-        this.ui.showInstructions();
-        
-        // Organiser les éléments pour qu'ils soient tous visibles
-        this.organizeGameElements();
     }
 
     async loadAssets() {
         try {
             // Définition des assets à charger
             const assetMap = {
-                bunny: 'public/assets/images/bunny.png',
-                platform: 'public/assets/images/platform.png',
-                coin: 'public/assets/images/coin.png',
+                bunny: 'public/assets/images/bunny.svg',
+                platform: 'public/assets/images/platform.svg',
+                coin: 'public/assets/images/coin.svg',
             };
             
             // Préchargement des assets
@@ -268,14 +286,38 @@ export class Game {
     createPlayer() {
         // Création du joueur
         this.player = new Player(this);
+        
+        // Vérifier que le container existe avant d'y ajouter le joueur
+        if (!this.container) {
+            console.error("Container principal non défini, initialisation...");
+            this.container = new PIXI.Container();
+            this.app.stage.addChild(this.container);
+        }
+        
         this.container.addChild(this.player.sprite);
+        console.log("Joueur créé et ajouté au container principal");
     }
 
     setupKeyboardEvents() {
         // Gestion des touches du clavier
         const keys = {};
+        
+        console.log("Configuration des événements clavier");
 
-        window.addEventListener('keydown', (e) => {
+        const handleKeyDown = (e) => {
+            // Log pour déboguer
+            console.log("Touche enfoncée:", e.code);
+            
+            // Gestion de la touche échap pour le menu principal
+            if (e.code === 'Escape') {
+                if (this.gameState === 'playing') {
+                    this.togglePause();
+                } else if (this.gameState === 'paused') {
+                    this.togglePause();
+                }
+                return;
+            }
+            
             // Ignorer les événements si le jeu est en pause ou terminé
             if (this.isPaused || this.isGameOver) {
                 // Permettre de redémarrer avec espace si game over
@@ -285,43 +327,111 @@ export class Game {
                 return;
             }
             
-            keys[e.code] = true;
-            this.player.handleKeyDown(keys);
+            // Si on est dans le menu, ignorer les contrôles du jeu
+            if (this.gameState === 'menu') {
+                return;
+            }
             
-            // Gestion de la pause avec la touche 'P' ou Escape
-            if (e.code === 'KeyP' || e.code === 'Escape') {
+            keys[e.code] = true;
+            
+            // S'assurer que le joueur existe avant d'appeler ses méthodes
+            if (this.player) {
+                this.player.handleKeyDown(keys);
+            }
+            
+            // Gestion de la pause avec la touche 'P'
+            if (e.code === 'KeyP') {
                 this.togglePause();
             }
-        });
+        };
 
-        window.addEventListener('keyup', (e) => {
+        const handleKeyUp = (e) => {
             keys[e.code] = false;
             
             // Même si le jeu est en pause, on veut quand même suivre 
             // les touches relâchées pour éviter des comportements bizarres
-            if (!this.isPaused && !this.isGameOver) {
+            if (this.gameState === 'playing' && !this.isPaused && !this.isGameOver && this.player) {
                 this.player.handleKeyUp(keys);
             }
-        });
+        };
+
+        // Supprimer les anciens écouteurs avant d'en ajouter de nouveaux
+        window.removeEventListener('keydown', handleKeyDown);
+        window.removeEventListener('keyup', handleKeyUp);
+        
+        // Ajouter les nouveaux écouteurs
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        
+        // Stocker les références pour pouvoir les supprimer plus tard si nécessaire
+        this._keyDownHandler = handleKeyDown;
+        this._keyUpHandler = handleKeyUp;
     }
 
     gameLoop(delta) {
+        // Ajouter un log pour déboguer
+        if (this.player && this.player.velocityX !== 0) {
+            console.log("Mouvement joueur:", this.player.velocityX, this.player.velocityY);
+        }
+        
+        // Si le jeu n'est pas démarré, ne rien faire
+        if (!this.isGameStarted) {
+            return;
+        }
+        
+        // Gérer les différents états du jeu
+        if (this.gameState === 'menu') {
+            // Rien à faire ici, le menu gère son propre affichage
+            return;
+        }
+        
         // Ne pas mettre à jour le jeu si en pause ou game over
         if (this.isPaused || this.isGameOver) return;
         
         // Mise à jour du joueur
-        this.player.update(delta);
+        if (this.player) {
+            this.player.update(delta);
+        }
         
         // Mise à jour des ennemis
         this.enemies.forEach(enemy => {
             enemy.update(delta);
         });
         
-        // Plus besoin d'appeler update sur les collectibles car ils sont gérés par le ticker
+        // Mise à jour des ennemis volants
+        this.flyingEnemies.forEach(enemy => {
+            enemy.update(delta);
+        });
         
-        // Vérification des collisions avec les plateformes
-        this.checkPlatformCollisions();
-
+        // Mise à jour des ennemis tireurs et vérification des collisions de projectiles
+        this.shootingEnemies.forEach(enemy => {
+            enemy.update(delta);
+            enemy.checkProjectileCollisions();
+        });
+        
+        // Mise à jour des plateformes mobiles
+        this.movingPlatforms.forEach(platform => {
+            platform.update(delta);
+            if (this.player) {
+                platform.checkPlayerCollision(this.player, delta);
+            }
+        });
+        
+        // Vérification des collisions avec les plateformes disparaissantes
+        this.disappearingPlatforms.forEach(platform => {
+            platform.update(delta);
+            if (this.player) {
+                platform.checkPlayerCollision(this.player);
+            }
+        });
+        
+        // Vérification des collisions avec les plateformes standard
+        if (this.player) {
+            for (const platform of this.platforms) {
+                platform.checkPlayerCollision(this.player);
+            }
+        }
+        
         // Vérification des collisions avec les collectibles
         this.checkCollectibleCollisions();
         
@@ -331,30 +441,20 @@ export class Game {
         // Vérification des collisions avec les ennemis
         this.checkEnemyCollisions();
         
+        // Vérification des collisions avec les ennemis volants
+        this.checkFlyingEnemyCollisions();
+        
+        // Vérification des collisions avec les ennemis tireurs
+        this.checkShootingEnemyCollisions();
+        
         // Vérifier si le niveau est terminé
-        if (this.level.isLevelComplete()) {
+        if (this.level && this.level.isLevelComplete()) {
             this.completeLevel();
         }
 
         // Mise à jour de l'interface utilisateur
-        this.ui.update();
-    }
-
-    checkPlatformCollisions() {
-        // Réinitialise l'état au sol du joueur
-        this.player.isOnGround = false;
-
-        for (const platform of this.platforms) {
-            if (this.isColliding(this.player, platform)) {
-                // Si le joueur tombe sur la plateforme
-                if (this.player.velocityY >= 0 && 
-                    this.player.sprite.y < platform.sprite.y) {
-                    
-                    this.player.sprite.y = platform.sprite.y - this.player.sprite.height / 2;
-                    this.player.velocityY = 0;
-                    this.player.isOnGround = true;
-                }
-            }
+        if (this.ui) {
+            this.ui.update();
         }
     }
 
@@ -432,6 +532,72 @@ export class Game {
         }
     }
 
+    checkFlyingEnemyCollisions() {
+        for (let i = this.flyingEnemies.length - 1; i >= 0; i--) {
+            const enemy = this.flyingEnemies[i];
+            
+            // Si le joueur saute sur l'ennemi
+            if (enemy.isPlayerAbove(this.player)) {
+                // Éliminer l'ennemi en utilisant la méthode destroy()
+                enemy.destroy();
+                
+                // Rebondir légèrement
+                this.player.velocityY = -8;
+                
+                // Ajouter des points
+                this.score += 8;
+                
+                // Effet de particules
+                this.particles.createExplosion(enemy.sprite.x, enemy.sprite.y);
+            }
+            // Si le joueur touche l'ennemi latéralement
+            else if (enemy.isPlayerHit(this.player)) {
+                // Prendre des dégâts
+                this.player.takeDamage(1);
+                
+                // Effet de particules
+                this.particles.createSparks(
+                    this.player.sprite.x, 
+                    this.player.sprite.y,
+                    Math.atan2(this.player.sprite.y - enemy.sprite.y, this.player.sprite.x - enemy.sprite.x)
+                );
+            }
+        }
+    }
+    
+    checkShootingEnemyCollisions() {
+        for (let i = this.shootingEnemies.length - 1; i >= 0; i--) {
+            const enemy = this.shootingEnemies[i];
+            
+            // Si le joueur saute sur l'ennemi
+            if (enemy.isPlayerAbove(this.player)) {
+                // Éliminer l'ennemi en utilisant la méthode destroy()
+                enemy.destroy();
+                
+                // Rebondir légèrement
+                this.player.velocityY = -8;
+                
+                // Ajouter des points
+                this.score += 10;
+                
+                // Effet de particules
+                this.particles.createExplosion(enemy.sprite.x, enemy.sprite.y);
+            }
+            // Si le joueur touche l'ennemi latéralement
+            else if (enemy.isPlayerHit(this.player)) {
+                // Prendre des dégâts
+                this.player.takeDamage(1);
+                
+                // Effet de particules
+                this.particles.createSparks(
+                    this.player.sprite.x, 
+                    this.player.sprite.y,
+                    Math.atan2(this.player.sprite.y - enemy.sprite.y, this.player.sprite.x - enemy.sprite.x)
+                );
+            }
+        }
+    }
+
     isColliding(objA, objB) {
         const boundsA = objA.sprite.getBounds();
         const boundsB = objB.sprite.getBounds();
@@ -448,6 +614,12 @@ export class Game {
         // Afficher un message de niveau terminé
         this.ui.showLevelCompleteMessage();
         
+        // Effet de particules festif
+        this.particles.createLevelCompleteEffect(
+            this.width / 2,
+            this.height / 2
+        );
+        
         // Charger le niveau suivant ou terminer le jeu
         if (!this.level.loadNextLevel()) {
             // Si c'était le dernier niveau, terminer le jeu
@@ -459,26 +631,41 @@ export class Game {
         // Afficher un message de fin de jeu réussie
         this.ui.showMessage('Félicitations! Vous avez terminé le jeu!', 5000);
         
-        // Remettre au premier niveau après un délai
-        setTimeout(() => {
-            this.level.loadLevel(0);
-        }, 5000);
+        // Vérifier si le score est suffisamment élevé pour entrer dans les meilleurs scores
+        if (this.scoreManager.isHighScore(this.score)) {
+            // Afficher la boîte de dialogue pour entrer le nom
+            const inputDialog = this.scoreManager.showNameInputDialog(this.score, this.level.currentLevel);
+            this.app.stage.addChild(inputDialog);
+        } else {
+            // Sinon, afficher juste le tableau des scores
+            setTimeout(() => {
+                const scoreTable = this.scoreManager.createScoreTable();
+                this.app.stage.addChild(scoreTable);
+            }, 5000);
+        }
     }
     
     gameOver() {
         // Mettre le jeu en état "game over"
         this.isGameOver = true;
+        this.gameState = 'gameOver';
         
         // Afficher l'écran de game over
         this.ui.showGameOverMessage();
         
-        // Effet sonore (à implémenter)
-        // this.playSoundEffect('gameOver');
+        // Effet de particules pour l'explosion finale
+        this.particles.createExplosion(this.player.sprite.x, this.player.sprite.y, {
+            count: 50,
+            colors: [0xFF0000, 0xFF5500, 0xFF8800],
+            sizeStart: 15,
+            speed: 5
+        });
     }
     
     restart() {
         // Réinitialiser l'état du jeu
         this.isGameOver = false;
+        this.gameState = 'playing';
         this.score = 0;
         
         // Masquer le message de game over
@@ -492,8 +679,43 @@ export class Game {
         this.ui.updateHealthDisplay();
     }
     
+    returnToMainMenu() {
+        // Nettoyer le niveau actuel
+        if (this.level) {
+            this.level.clear();
+        }
+        
+        // Supprimer le joueur
+        if (this.player && this.player.sprite.parent) {
+            this.player.sprite.parent.removeChild(this.player.sprite);
+        }
+        
+        // Supprimer le tableau de scores s'il existe
+        const scoreTableContainer = this.app.stage.getChildByName('scoreTableContainer');
+        if (scoreTableContainer) {
+            this.app.stage.removeChild(scoreTableContainer);
+        }
+        
+        // Réinitialiser l'état du jeu
+        this.isGameOver = false;
+        this.isPaused = false;
+        this.gameState = 'menu';
+        this.score = 0;
+        
+        // Masquer l'UI du jeu
+        if (this.ui) {
+            this.ui.container.visible = false;
+        }
+        
+        // Afficher le menu principal
+        this.mainMenu.show();
+    }
+    
     togglePause() {
+        if (this.gameState !== 'playing' && this.gameState !== 'paused') return;
+        
         this.isPaused = !this.isPaused;
+        this.gameState = this.isPaused ? 'paused' : 'playing';
         
         if (this.isPaused) {
             this.ui.showMessage('Jeu en pause', 999999);
@@ -608,5 +830,59 @@ export class Game {
         
         // Rafraîchir l'affichage pour être sûr
         this.app.renderer.render(this.app.stage);
+    }
+
+    startGameplay() {
+        // Changer l'état du jeu
+        this.gameState = 'playing';
+        this.isGameRunning = true;
+        this.isGameStarted = true; // S'assurer que cette propriété est à true
+        this.isPaused = false; // S'assurer que le jeu n'est pas en pause
+        
+        console.log("Démarrage du gameplay - État:", this.gameState);
+        
+        // Créer un container principal pour le jeu s'il n'existe pas déjà
+        if (!this.container) {
+            this.container = new PIXI.Container();
+            this.app.stage.addChild(this.container);
+            console.log("Container principal du jeu créé");
+        }
+        
+        // Créer le joueur
+        this.createPlayer();
+        
+        // Initialiser l'interface utilisateur
+        this.ui = new UI(this);
+        
+        // Initialiser le gestionnaire de niveaux
+        this.level = new Level(this, {});
+        
+        // Configurer les événements clavier
+        this.setupKeyboardEvents();
+        
+        // Charger le premier niveau
+        const levelLoaded = this.level.loadLevel(0);
+        console.log("Niveau chargé:", levelLoaded);
+        console.log("Plateformes créées:", this.platforms.length);
+        console.log("Collectibles créés:", this.collectibles.length);
+        console.log("Ennemis créés:", this.enemies.length);
+        console.log("Power-ups créés:", this.powerUps.length);
+        
+        // Forcer la mise à jour de l'affichage de santé et de niveau
+        this.ui.createHealthDisplay();
+        this.ui.updateLevelDisplay();
+        
+        // Montrer les instructions
+        this.ui.showInstructions();
+        
+        // Positionner correctement le joueur
+        if (this.player) {
+            // Positionner le joueur en bas à gauche
+            this.player.setPosition(100, this.height - 100);
+            console.log("Joueur positionné à:", 100, this.height - 100);
+        }
+        
+        // Organiser les éléments pour qu'ils soient tous visibles
+        this.organizeGameElements();
     }
 } 

@@ -1,4 +1,5 @@
 import * as PIXI from 'pixi.js';
+import { Game } from '../core/game';
 
 // Référence à la définition de drawHeart dans game.ts
 declare global {
@@ -10,330 +11,313 @@ declare global {
 }
 
 export class UI {
-    game: any;
+    game: Game;
     container: PIXI.Container;
     scoreText: PIXI.Text;
     levelText: PIXI.Text;
-    healthIcons: PIXI.Graphics[];
-    instructionsText: PIXI.Text;
+    healthIcons: PIXI.Container[];
     messageText: PIXI.Text;
-    gameOverElements: PIXI.Text[] | null;
+    gameOverContainer: PIXI.Container;
     
-    constructor(game) {
+    constructor(game: Game) {
         this.game = game;
-        
-        // Création du conteneur d'UI
         this.container = new PIXI.Container();
+        this.healthIcons = [];
+        
+        // Ajouter le container de l'UI au stage
         this.game.app.stage.addChild(this.container);
         
-        // Texte de score
-        const scoreStyle = new PIXI.TextStyle({
+        // Créer l'affichage du score
+        this.createScoreDisplay();
+        
+        // Créer l'affichage du niveau
+        this.createLevelDisplay();
+        
+        // Créer l'affichage de la santé
+        this.createHealthDisplay();
+        
+        // Créer la zone de message
+        this.createMessageDisplay();
+        
+        // Créer l'écran de game over (caché par défaut)
+        this.createGameOverScreen();
+    }
+    
+    createScoreDisplay() {
+        const style = new PIXI.TextStyle({
             fontFamily: 'Arial',
             fontSize: 24,
-            fill: 0xFFFFFF,
-            align: 'center',
-            stroke: 0x000000,
+            fontWeight: 'bold',
+            fill: '#FFFFFF',
+            stroke: '#000000',
             strokeThickness: 4
         });
-        this.scoreText = new PIXI.Text('Score: 0', scoreStyle);
         
+        this.scoreText = new PIXI.Text(`Score: ${this.game.score}`, style);
         this.scoreText.x = 20;
         this.scoreText.y = 20;
         
         this.container.addChild(this.scoreText);
-        
-        // Texte de niveau
-        const levelStyle = new PIXI.TextStyle({
+    }
+    
+    createLevelDisplay() {
+        const style = new PIXI.TextStyle({
             fontFamily: 'Arial',
             fontSize: 24,
-            fill: 0xFFFFFF,
-            align: 'center',
-            stroke: 0x000000,
+            fontWeight: 'bold',
+            fill: '#FFFFFF',
+            stroke: '#000000',
             strokeThickness: 4
         });
-        this.levelText = new PIXI.Text('Niveau: 1', levelStyle);
         
+        this.levelText = new PIXI.Text('Niveau: 1', style);
         this.levelText.x = this.game.width - 150;
         this.levelText.y = 20;
         
         this.container.addChild(this.levelText);
-        
-        // Création des icônes de vie
+    }
+    
+    createHealthDisplay() {
+        // Nettoyer les icônes existantes
+        this.healthIcons.forEach(icon => {
+            if (icon.parent) {
+                icon.parent.removeChild(icon);
+            }
+        });
         this.healthIcons = [];
-        // On créera l'affichage de santé une fois que le joueur sera disponible
         
-        // Instructions
-        const instructionsStyle = new PIXI.TextStyle({
+        // Créer une nouvelle icône pour chaque point de vie
+        for (let i = 0; i < this.game.player.health; i++) {
+            const icon = new PIXI.Container();
+            
+            // Dessiner un cœur
+            const heart = new PIXI.Graphics();
+            this.game.drawHeart(heart, 0, 0, 10, 0xFF0000);
+            icon.addChild(heart);
+            
+            // Positionner l'icône
+            icon.x = 20 + i * 30;
+            icon.y = 60;
+            
+            this.container.addChild(icon);
+            this.healthIcons.push(icon);
+        }
+    }
+    
+    createMessageDisplay() {
+        const style = new PIXI.TextStyle({
             fontFamily: 'Arial',
-            fontSize: 14,
-            fill: 0xFFFFFF,
-            align: 'center',
-            stroke: 0x000000,
-            strokeThickness: 2
+            fontSize: 32,
+            fontWeight: 'bold',
+            fill: '#FFFFFF',
+            stroke: '#000000',
+            strokeThickness: 5,
+            align: 'center'
         });
-        this.instructionsText = new PIXI.Text('Flèches/WASD pour bouger, Flèche haut/W/Espace pour sauter', instructionsStyle);
         
-        this.instructionsText.x = 20;
-        this.instructionsText.y = this.game.height - 40;
-        
-        this.container.addChild(this.instructionsText);
-        
-        // Message (pour afficher les notifications de power-up, etc.)
-        const messageStyle = new PIXI.TextStyle({
-            fontFamily: 'Arial',
-            fontSize: 20,
-            fill: 0xFFFF00,
-            align: 'center',
-            stroke: 0x000000,
-            strokeThickness: 3
-        });
-        this.messageText = new PIXI.Text('', messageStyle);
-        
+        this.messageText = new PIXI.Text('', style);
+        this.messageText.anchor.set(0.5);
         this.messageText.x = this.game.width / 2;
-        this.messageText.y = 70;
-        this.messageText.anchor.set(0.5, 0);
+        this.messageText.y = this.game.height / 2;
         
         this.container.addChild(this.messageText);
     }
     
-    update() {
-        // Mise à jour du score
-        this.scoreText.text = `Score: ${this.game.score}`;
+    createGameOverScreen() {
+        this.gameOverContainer = new PIXI.Container();
+        this.gameOverContainer.visible = false;
         
-        // Créer l'affichage de santé si nécessaire
-        if (this.game.player && this.healthIcons.length === 0) {
-            this.createHealthDisplay();
-        }
-    }
-    
-    createHealthDisplay() {
-        // Supprimer les icônes de santé existantes
-        this.healthIcons.forEach(icon => {
-            this.container.removeChild(icon);
-        });
-        this.healthIcons = [];
-
-        // Vérifier si le joueur existe
-        if (!this.game.player) {
-            console.log("Impossible de créer l'affichage de santé: le joueur n'est pas encore créé");
-            return;
-        }
-
-        const maxHealth = this.game.player.maxHealth;
-        const currentHealth = this.game.player.health;
-        const heartSize = 40; // Cœurs plus grands
-        const spacing = 10;
+        // Fond semi-transparent
+        const background = new PIXI.Graphics();
+        background.beginFill(0x000000, 0.7);
+        background.drawRect(0, 0, this.game.width, this.game.height);
+        background.endFill();
         
-        console.log(`Création de ${maxHealth} cœurs, santé actuelle: ${currentHealth}`);
-        
-        for (let i = 0; i < maxHealth; i++) {
-            const heart = new PIXI.Graphics();
-            
-            // Dessiner un cœur plein (rouge) ou vide (contour rouge)
-            if (i < currentHealth) {
-                // Cœur plein
-                heart.beginFill(0xFF0000);
-                heart.lineStyle(2, 0x800000);
-            } else {
-                // Cœur vide
-                heart.beginFill(0, 0); // Transparent
-                heart.lineStyle(2, 0xFF0000);
-            }
-            
-            // Dessiner la forme du cœur
-            const x = 0, y = 0;
-            heart.moveTo(x, y + heartSize / 4);
-            
-            // Côté gauche du cœur
-            heart.bezierCurveTo(
-                x - heartSize / 2, y - heartSize / 2,
-                x - heartSize, y + heartSize / 4,
-                x, y + heartSize
-            );
-            
-            // Côté droit du cœur
-            heart.bezierCurveTo(
-                x + heartSize, y + heartSize / 4,
-                x + heartSize / 2, y - heartSize / 2,
-                x, y + heartSize / 4
-            );
-            
-            heart.endFill();
-            
-            // Position en haut à droite de l'écran, plus visible
-            heart.x = this.game.width - (heartSize + spacing) * (i + 1);
-            heart.y = spacing * 3;
-            
-            this.healthIcons.push(heart);
-            this.container.addChild(heart);
-            console.log(`Cœur ${i+1} créé à la position ${heart.x}, ${heart.y}`);
-        }
-    }
-    
-    updateHealthDisplay() {
-        // Si les icônes de santé n'existent pas encore, les créer
-        if (this.healthIcons.length === 0) {
-            this.createHealthDisplay();
-            return;
-        }
-        
-        // Mettre à jour la couleur des cœurs
-        for (let i = 0; i < this.healthIcons.length; i++) {
-            const icon = this.healthIcons[i];
-            
-            // Supprimer le contenu précédent
-            icon.clear();
-            
-            // Dessiner un cœur plein ou vide en fonction de la santé actuelle
-            if (i < this.game.player.health) {
-                // Cœur plein (rouge)
-                this.drawHeartShape(icon, 0, 0, 15, 0xFF0000);
-            } else {
-                // Cœur vide (contour rouge)
-                this.drawHeartShape(icon, 0, 0, 15, 0xFF0000, true);
-            }
-        }
-    }
-    
-    // Méthode auxiliaire pour dessiner un cœur sans utiliser l'extension drawHeart
-    private drawHeartShape(graphics: PIXI.Graphics, x: number, y: number, size: number, color: number, outline = false) {
-        if (outline) {
-            graphics.lineStyle(2, color);
-            graphics.beginFill(0, 0); // Transparent
-        } else {
-            graphics.beginFill(color);
-            graphics.lineStyle(2, 0x800000);
-        }
-        
-        graphics.moveTo(x, y + size / 4);
-        
-        // Côté gauche du cœur
-        graphics.bezierCurveTo(
-            x - size / 2, y - size / 2,
-            x - size, y + size / 4,
-            x, y + size
-        );
-        
-        // Côté droit du cœur
-        graphics.bezierCurveTo(
-            x + size, y + size / 4,
-            x + size / 2, y - size / 2,
-            x, y + size / 4
-        );
-        
-        graphics.endFill();
-    }
-    
-    updateLevelDisplay() {
-        // Mettre à jour le texte du niveau
-        this.levelText.text = `Niveau: ${this.game.level.currentLevel + 1}`;
-    }
-    
-    showMessage(text, duration = 3000) {
-        // Afficher un message temporaire
-        this.messageText.text = text;
-        
-        // Effacer après un délai
-        setTimeout(() => {
-            this.messageText.text = '';
-        }, duration);
-    }
-    
-    showPowerUpMessage(type) {
-        // Afficher un message pour le power-up collecté
-        const messages = {
-            doubleJump: 'Double Saut activé!',
-            speed: 'Vitesse augmentée!',
-            invincibility: 'Invincibilité temporaire!',
-            healthBoost: '+1 Point de vie!'
-        };
-        
-        this.showMessage(messages[type] || 'Power-up collecté!');
-    }
-    
-    showLevelCompleteMessage() {
-        // Afficher un message de niveau terminé
-        this.showMessage('Niveau terminé!', 2000);
-    }
-    
-    showGameOverMessage() {
-        // Afficher un message de fin de jeu
+        // Texte de Game Over
         const gameOverStyle = new PIXI.TextStyle({
             fontFamily: 'Arial',
-            fontSize: 48,
-            fill: 0xFF0000,
-            align: 'center',
-            stroke: 0x000000,
-            strokeThickness: 6
+            fontSize: 64,
+            fontWeight: 'bold',
+            fill: ['#FF0000', '#FFFF00'],
+            stroke: '#000000',
+            strokeThickness: 6,
+            dropShadow: true,
+            dropShadowColor: '#000000',
+            dropShadowBlur: 4,
+            dropShadowAngle: Math.PI / 6,
+            dropShadowDistance: 6
         });
-        const gameOverText = new PIXI.Text('Game Over', gameOverStyle);
         
-        gameOverText.x = this.game.width / 2;
-        gameOverText.y = this.game.height / 2;
+        const gameOverText = new PIXI.Text('GAME OVER', gameOverStyle);
         gameOverText.anchor.set(0.5);
+        gameOverText.x = this.game.width / 2;
+        gameOverText.y = this.game.height / 3;
         
-        this.container.addChild(gameOverText);
+        // Instructions pour redémarrer
+        const instructionStyle = new PIXI.TextStyle({
+            fontFamily: 'Arial',
+            fontSize: 28,
+            fill: '#FFFFFF',
+            align: 'center'
+        });
         
-        // Message de redémarrage
-        const restartStyle = new PIXI.TextStyle({
+        const instructionText = new PIXI.Text('Appuyez sur ESPACE pour recommencer\nou ESC pour revenir au menu', instructionStyle);
+        instructionText.anchor.set(0.5);
+        instructionText.x = this.game.width / 2;
+        instructionText.y = this.game.height / 2;
+        
+        // Bouton pour revenir au menu principal
+        const menuButton = this.createButton('Menu Principal', this.game.width / 2, this.game.height * 2/3, () => {
+            this.game.returnToMainMenu();
+        });
+        
+        // Ajouter tous les éléments au container
+        this.gameOverContainer.addChild(background);
+        this.gameOverContainer.addChild(gameOverText);
+        this.gameOverContainer.addChild(instructionText);
+        this.gameOverContainer.addChild(menuButton);
+        
+        this.container.addChild(this.gameOverContainer);
+    }
+    
+    createButton(text: string, x: number, y: number, callback: () => void): PIXI.Container {
+        const container = new PIXI.Container();
+        container.x = x;
+        container.y = y;
+        
+        // Créer le fond du bouton
+        const background = new PIXI.Graphics();
+        background.beginFill(0x0066CC);
+        background.lineStyle(4, 0x0033AA);
+        background.drawRoundedRect(-100, -25, 200, 50, 15);
+        background.endFill();
+        
+        // Créer le texte du bouton
+        const buttonText = new PIXI.Text(text, {
             fontFamily: 'Arial',
             fontSize: 24,
             fill: 0xFFFFFF,
-            align: 'center',
-            stroke: 0x000000,
-            strokeThickness: 4
+            align: 'center'
         });
-        const restartText = new PIXI.Text('Appuyez sur Espace pour recommencer', restartStyle);
+        buttonText.anchor.set(0.5);
         
-        restartText.x = this.game.width / 2;
-        restartText.y = this.game.height / 2 + 60;
-        restartText.anchor.set(0.5);
+        // Ajouter les éléments au container
+        container.addChild(background);
+        container.addChild(buttonText);
         
-        this.container.addChild(restartText);
+        // Rendre le bouton interactif
+        container.eventMode = 'static';
+        container.cursor = 'pointer';
         
-        // Référence pour pouvoir les supprimer plus tard
-        this.gameOverElements = [gameOverText, restartText];
+        // Effets visuels au survol
+        container.on('pointerover', () => {
+            background.tint = 0x00AAFF;
+            container.scale.set(1.05);
+        });
+        
+        container.on('pointerout', () => {
+            background.tint = 0xFFFFFF;
+            container.scale.set(1.0);
+        });
+        
+        // Déclencher le callback au clic
+        container.on('pointerdown', callback);
+        
+        return container;
     }
     
-    hideGameOverMessage() {
-        // Supprimer les éléments de game over
-        if (this.gameOverElements) {
-            this.gameOverElements.forEach(element => {
-                this.container.removeChild(element);
-            });
-            this.gameOverElements = null;
+    update() {
+        // Mettre à jour le score
+        this.scoreText.text = `Score: ${this.game.score}`;
+    }
+    
+    updateLevelDisplay() {
+        // Mettre à jour l'affichage du niveau
+        this.levelText.text = `Niveau: ${this.game.level.currentLevel + 1}`;
+    }
+    
+    updateHealthDisplay() {
+        // Mettre à jour l'affichage de la santé
+        this.createHealthDisplay();
+    }
+    
+    updatePositions() {
+        // Mettre à jour la position des éléments UI lors du redimensionnement
+        this.levelText.x = this.game.width - 150;
+        
+        this.messageText.x = this.game.width / 2;
+        this.messageText.y = this.game.height / 2;
+        
+        // Mettre à jour l'écran de game over
+        if (this.gameOverContainer) {
+            const background = this.gameOverContainer.children[0] as PIXI.Graphics;
+            background.clear();
+            background.beginFill(0x000000, 0.7);
+            background.drawRect(0, 0, this.game.width, this.game.height);
+            background.endFill();
+            
+            const gameOverText = this.gameOverContainer.children[1] as PIXI.Text;
+            gameOverText.x = this.game.width / 2;
+            gameOverText.y = this.game.height / 3;
+            
+            const instructionText = this.gameOverContainer.children[2] as PIXI.Text;
+            instructionText.x = this.game.width / 2;
+            instructionText.y = this.game.height / 2;
+            
+            const menuButton = this.gameOverContainer.children[3] as PIXI.Container;
+            menuButton.x = this.game.width / 2;
+            menuButton.y = this.game.height * 2/3;
+        }
+    }
+    
+    showMessage(message: string, duration: number = 2000) {
+        this.messageText.text = message;
+        
+        // Effacer le message après la durée spécifiée
+        if (duration < 999999) {  // Si la durée est très longue, ne pas effacer (utilisé pour la pause)
+            setTimeout(() => {
+                this.messageText.text = '';
+            }, duration);
         }
     }
     
     showInstructions() {
-        // Afficher les instructions de jeu
-        this.showMessage('Utilisez les flèches ou WASD pour vous déplacer, Flèche haut/W/Espace pour sauter', 5000);
+        this.showMessage('Utilisez les flèches ou WASD pour vous déplacer. Collectez toutes les pièces!', 5000);
     }
     
-    updatePositions() {
-        // Mettre à jour la position du texte de score
-        this.scoreText.x = 20;
-        this.scoreText.y = 20;
+    showLevelCompleteMessage() {
+        this.showMessage(`Niveau ${this.game.level.currentLevel + 1} terminé!`, 3000);
+    }
+    
+    showPowerUpMessage(type: string) {
+        let message = '';
         
-        // Mettre à jour la position du texte de niveau
-        this.levelText.x = this.game.width - 150;
-        this.levelText.y = 20;
-        
-        // Mettre à jour la position des instructions
-        this.instructionsText.x = 20;
-        this.instructionsText.y = this.game.height - 40;
-        
-        // Mettre à jour la position du message
-        this.messageText.x = this.game.width / 2;
-        this.messageText.y = 70;
-        
-        console.log("Mise à jour des positions UI");
-        console.log("Joueur santé:", this.game.player ? this.game.player.health : "non disponible");
-        console.log("Icônes santé:", this.healthIcons.length);
-        
-        // Forcer la création de l'affichage de santé
-        if (this.game.player) {
-            this.createHealthDisplay();
+        switch(type) {
+            case 'doubleJump':
+                message = 'Double saut activé!';
+                break;
+                
+            case 'speed':
+                message = 'Vitesse augmentée!';
+                break;
+                
+            case 'invincibility':
+                message = 'Invincibilité!';
+                break;
+                
+            case 'healthBoost':
+                message = '+1 Vie!';
+                break;
         }
+        
+        this.showMessage(message, 2000);
+    }
+    
+    showGameOverMessage() {
+        this.gameOverContainer.visible = true;
+    }
+    
+    hideGameOverMessage() {
+        this.gameOverContainer.visible = false;
     }
 } 

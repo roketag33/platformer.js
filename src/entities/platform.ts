@@ -41,4 +41,33 @@ export class Platform {
         // Définir le point d'ancrage au milieu du haut de la sprite
         this.sprite.anchor.set(0, 0);
     }
+    
+    // Méthode pour vérifier la collision avec le joueur
+    checkPlayerCollision(player) {
+        const playerBounds = player.sprite.getBounds();
+        const platformBounds = this.sprite.getBounds();
+        
+        // Vérifier si le joueur est au-dessus de la plateforme
+        const isOnPlatform = (
+            playerBounds.x + playerBounds.width > platformBounds.x &&
+            playerBounds.x < platformBounds.x + platformBounds.width &&
+            playerBounds.y + playerBounds.height >= platformBounds.y &&
+            playerBounds.y + playerBounds.height <= platformBounds.y + platformBounds.height / 2 &&
+            player.velocityY >= 0
+        );
+        
+        if (isOnPlatform) {
+            // Placer le joueur sur la plateforme
+            player.sprite.y = platformBounds.y - playerBounds.height / 2;
+            player.velocityY = 0;
+            player.isOnGround = true;
+        }
+        
+        return isOnPlatform;
+    }
+    
+    // Méthode pour gérer la collision (pour compatibilité avec les classes enfants)
+    onCollision(player) {
+        return this.checkPlayerCollision(player);
+    }
 } 
