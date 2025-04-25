@@ -1,0 +1,13 @@
+<svg width="20" height="20" xmlns="http://www.w3.org/2000/svg">
+  <!-- Cercle extérieur -->
+  <circle cx="10" cy="10" r="9" fill="#FFD700" stroke="#B8860B" stroke-width="1"/>
+  
+  <!-- Brillance -->
+  <circle cx="7" cy="7" r="2" fill="#FFFFFF" opacity="0.7"/>
+  
+  <!-- Détails intérieurs -->
+  <circle cx="10" cy="10" r="6" fill="none" stroke="#B8860B" stroke-width="0.5"/>
+  
+  <!-- Symbole monétaire -->
+  <text x="10" y="14" font-family="Arial" font-size="10" text-anchor="middle" fill="#B8860B">$</text>
+</svg> 
